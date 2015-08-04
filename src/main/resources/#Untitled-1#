@@ -1,1 +1,0 @@
-Josh Suereth designs a distributed search service with Akka using Actors, covering: message passing, designing topologies, handling failure, service overload detection and tracking user sessions.
