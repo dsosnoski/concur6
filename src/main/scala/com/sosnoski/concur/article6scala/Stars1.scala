@@ -3,20 +3,20 @@ package com.sosnoski.concur.article6scala
 import scala.concurrent.duration._
 import scala.util.Random
 import akka.actor._
-import akka.event.LoggingReceive
 import akka.util._
 
-object Stars extends App {
+object Stars1 extends App {
 
   import Star._
 
-  val starBaseLifetime = 6000 millis
+  val starBaseLifetime = 5000 millis
   val starVariableLifetime = 2000 millis
   val starBaseSpawntime = 2000 millis
   val starVariableSpawntime = 1000 millis
 
   object Namer {
     case object GetName
+    case class SetName(name: String)
     def props(names: Array[String]): Props = Props(new Namer(names))
   }
 
@@ -37,24 +37,23 @@ object Stars extends App {
             val second = nextNameIndex % names.length
             names(first) + "-" + names(second)
           }
-        sender ! Star.SetName(name)
+        sender ! SetName(name)
         nextNameIndex = (nextNameIndex + 1) % nameIndexLimit
       }
-      case ReceiveTimeout => system shutdown
+      case ReceiveTimeout => {
+        println("Namer receive timeout, shutting down system")
+        system shutdown
+      }
     }
-
-    override def postStop = println("Namer over and out")
   }
 
   object Star {
-    case class SetName(name: String)
     case class Greet(peer: ActorRef)
     case object AskName
     case class TellName(name: String)
     case object Spawn
     case object IntroduceMe
-    case object Die
-
+    case object SayGoodbye
     def props(greeting: String, gennum: Int, parent: String) = Props(new Star(greeting, gennum, parent))
   }
 
@@ -71,13 +70,13 @@ object Stars extends App {
       base + variable * random.nextInt(1000) / 1000
 
     val killtime = scaledDuration(starBaseLifetime, starVariableLifetime)
-    val killer = scheduler.scheduleOnce(killtime, self, Die)
+    scheduler.scheduleOnce(killtime, self, SayGoodbye)
     val spawntime = scaledDuration(starBaseSpawntime, starVariableSpawntime)
     val spawner = scheduler.schedule(spawntime, 1 second, self, Spawn)
     if (gennum > 1) scheduler.scheduleOnce(1 second, context.parent, IntroduceMe)
 
-    def receive = LoggingReceive {
-      case SetName(name) => {
+    def receive = {
+      case Namer.SetName(name) => {
         myName = name
         println(s"$name is the ${gennum}th generation child of $parent")
         context become named
@@ -96,19 +95,12 @@ object Stars extends App {
         context.actorOf(props(greeting, gennum + 1, myName))
       }
       case IntroduceMe => starsKnown.foreach {
-        case (name, ref) =>
-          ref ! Greet(sender)
+        case (name, ref) => ref ! Greet(sender)
       }
-      case Die => {
-        println(s"$myName says: 'I’d like to thank the Academy...'")
-        context stop self
+      case SayGoodbye => {
+          println(s"$myName says: 'I’d like to thank the Academy...'")
+          context stop self
       }
-    }
-
-    override def postStop = {
-      spawner.cancel
-      killer.cancel
-      println(s"$myName says: 'Urk'")
     }
   }
 
